@@ -10,9 +10,9 @@
     <atom:link href="https://chaseknowlden.github.io/index.xml" rel="self" type="application/rss+xml" />
     <item>
       <title>How to Install Prism Launcher on Arch Linux</title>
-      <link>https://chaseknowlden.github.io/posts/install-prismlauncher/</link>
+      <link>https://chaseknowlden.github.io/posts/2025/install-prismlauncher/</link>
       <pubDate>Mon, 14 Jul 2025 20:08:06 -0400</pubDate>
-      <guid>https://chaseknowlden.github.io/posts/install-prismlauncher/</guid>
+      <guid>https://chaseknowlden.github.io/posts/2025/install-prismlauncher/</guid>
       <description>&lt;p&gt;Ever wanted to play Minecraft on Linux? The answer is yes!&lt;/p&gt;&#xA;&lt;p&gt;To make this possible, we need to install Prism Launcher from pacman.&lt;/p&gt;&#xA;&lt;p&gt;To install Prism Launcher, run the following command:&lt;/p&gt;&#xA;&lt;div class=&#34;highlight&#34;&gt;&lt;pre tabindex=&#34;0&#34; style=&#34;color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;&#34;&gt;&lt;code class=&#34;language-sh&#34; data-lang=&#34;sh&#34;&gt;&lt;span style=&#34;display:flex;&#34;&gt;&lt;span&gt;sudo pacman -S prismlauncher&#xA;&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;Then go to the &lt;strong&gt;Applications&lt;/strong&gt; menu and click on &lt;strong&gt;&lt;em&gt;Prism Launcher&lt;/em&gt;&lt;/strong&gt;. It will come up with a wizard that talks you through how to setup the Launcher.&lt;/p&gt;&#xA;&lt;p&gt;When you reach the instances screen, click on &lt;strong&gt;Add Instance&lt;/strong&gt;, select your Minecraft version, and click on &lt;strong&gt;OK&lt;/strong&gt;.&lt;/p&gt;</description>
     </item>
     <item>
