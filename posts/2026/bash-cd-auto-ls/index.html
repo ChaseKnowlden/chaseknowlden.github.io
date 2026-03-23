@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en-us">
+<title>Stop Typing ls After Every cd — Let Bash Do It For You | Minecore Blog</title>
+<meta charset="utf-8">
+<meta name="generator" content="Hugo 0.159.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="stylesheet" href="https://chaseknowlden.github.io/css/index.css">
+<link rel="canonical" href="https://chaseknowlden.github.io/posts/2026/bash-cd-auto-ls/">
+<link rel="alternate" type="application/rss+xml" href="" title="Minecore Blog">
+
+<header>
+  
+    <a href="https://chaseknowlden.github.io/" class="title">Minecore Blog</a>
+  
+  
+</header>
+
+<article>
+  <header>
+    <h1>Stop Typing ls After Every cd — Let Bash Do It For You</h1>
+    <time datetime="2026-03-23T00:00:00-04:00">March 23, 2026</time>
+  </header>
+  <p>If you live in the terminal, you&rsquo;ve almost certainly developed a reflex: change directory, type <code>ls</code>, hit Enter. Change directory, type <code>ls</code>, hit Enter. It&rsquo;s as automatic as breathing. But what if you never had to type that second command again?</p>
+<p>In a recent video from the Learn Linux TV channel, the host shares a clever Bash trick that overrides the built-in <code>cd</code> command with a custom function — one that automatically runs <code>ls</code> every time you change directories. It&rsquo;s a small quality-of-life improvement that will feel surprisingly natural once you try it.</p>
+<hr>
+<h2 id="the-habit-every-linux-user-has-but-rarely-thinks-about">The Habit Every Linux User Has (But Rarely Thinks About)</h2>
+<p>Most Linux users, regardless of experience level, instinctively run <code>ls</code> after changing directories. It&rsquo;s not a bad habit — knowing what&rsquo;s in your current directory is genuinely useful. But it <em>is</em> repetitive, and in the terminal, repetition is a sign that automation can help.</p>
+<p>Rather than fighting your muscle memory, you can make it work <em>for</em> you.</p>
+<hr>
+<h2 id="how-it-works-overriding-cd-with-a-bash-function">How It Works: Overriding <code>cd</code> with a Bash Function</h2>
+<p>The trick is straightforward: you define a Bash function named <code>cd</code>, which shadows the built-in command. Inside that function, you run the real <code>cd</code> (via <code>builtin cd</code>) and then immediately run <code>ls</code> with your preferred options.</p>
+<p>Here&rsquo;s the function to add to your <code>~/.bashrc</code>:</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-bash" data-lang="bash"><span style="display:flex;"><span>cd<span style="color:#f92672">()</span> <span style="color:#f92672">{</span>
+</span></span><span style="display:flex;"><span>    new_directory<span style="color:#f92672">=</span><span style="color:#e6db74">&#34;</span><span style="color:#e6db74">${</span>1<span style="color:#66d9ef">:-</span>$HOME<span style="color:#e6db74">}</span><span style="color:#e6db74">&#34;</span>
+</span></span><span style="display:flex;"><span>    builtin cd <span style="color:#e6db74">&#34;</span><span style="color:#e6db74">${</span>new_directory<span style="color:#e6db74">}</span><span style="color:#e6db74">&#34;</span> <span style="color:#f92672">&amp;&amp;</span> ls -lhF <span style="color:#ae81ff">\
+</span></span></span><span style="display:flex;"><span>        --time-style<span style="color:#f92672">=</span>+<span style="color:#e6db74">&#34;%Y-%m-%d %H:%M&#34;</span> <span style="color:#ae81ff">\
+</span></span></span><span style="display:flex;"><span>        --color <span style="color:#ae81ff">\
+</span></span></span><span style="display:flex;"><span>        --ignore<span style="color:#f92672">=</span>lost+found
+</span></span><span style="display:flex;"><span><span style="color:#f92672">}</span>
+</span></span></code></pre></div><p>Let&rsquo;s break down what each piece does.</p>
+<h3 id="the-function-name">The Function Name</h3>
+<p>Naming the function <code>cd</code> is what makes this work. In Bash, a function with the same name as a built-in command takes precedence over it — so every time you type <code>cd</code>, your custom function runs instead.</p>
+<h3 id="handling-no-arguments">Handling No Arguments</h3>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-bash" data-lang="bash"><span style="display:flex;"><span>new_directory<span style="color:#f92672">=</span><span style="color:#e6db74">&#34;</span><span style="color:#e6db74">${</span>1<span style="color:#66d9ef">:-</span>$HOME<span style="color:#e6db74">}</span><span style="color:#e6db74">&#34;</span>
+</span></span></code></pre></div><p>This line stores the target directory in a variable. The <code>:-$HOME</code> part is a Bash parameter expansion that defaults to your home directory if no argument is provided — preserving the familiar behavior of typing <code>cd</code> with nothing after it to go home.</p>
+<h3 id="the-builtin-keyword">The <code>builtin</code> Keyword</h3>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-bash" data-lang="bash"><span style="display:flex;"><span>builtin cd <span style="color:#e6db74">&#34;</span><span style="color:#e6db74">${</span>new_directory<span style="color:#e6db74">}</span><span style="color:#e6db74">&#34;</span>
+</span></span></code></pre></div><p>Without the <code>builtin</code> keyword, calling <code>cd</code> inside your <code>cd</code> function would create an infinite loop. The <code>builtin</code> prefix tells Bash to skip the function lookup and use the real, built-in <code>cd</code> command directly.</p>
+<h3 id="the-ls-command">The <code>ls</code> Command</h3>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-bash" data-lang="bash"><span style="display:flex;"><span>ls -lhF --time-style<span style="color:#f92672">=</span>+<span style="color:#e6db74">&#34;%Y-%m-%d %H:%M&#34;</span> --color --ignore<span style="color:#f92672">=</span>lost+found
+</span></span></code></pre></div><p>This is the <code>ls</code> invocation that runs automatically after every directory change. Here&rsquo;s what each flag does:</p>
+<table>
+  <thead>
+      <tr>
+          <th>Flag</th>
+          <th>Effect</th>
+      </tr>
+  </thead>
+  <tbody>
+      <tr>
+          <td><code>-l</code></td>
+          <td>Long listing format (permissions, owner, size, date)</td>
+      </tr>
+      <tr>
+          <td><code>-h</code></td>
+          <td>Human-readable file sizes (KB, MB, GB)</td>
+      </tr>
+      <tr>
+          <td><code>-F</code></td>
+          <td>Appends type indicators — <code>/</code> for directories, <code>*</code> for executables</td>
+      </tr>
+      <tr>
+          <td><code>--time-style</code></td>
+          <td>Customizes the date format (ISO-style, year-first here)</td>
+      </tr>
+      <tr>
+          <td><code>--color</code></td>
+          <td>Colorizes the output</td>
+      </tr>
+      <tr>
+          <td><code>--ignore</code></td>
+          <td>Hides specified files from the listing</td>
+      </tr>
+  </tbody>
+</table>
+<p>You can freely swap out these options for whatever <code>ls</code> flags you prefer. This part is entirely customizable.</p>
+<hr>
+<h2 id="setting-it-up">Setting It Up</h2>
+<h3 id="step-1-edit-your-bashrc">Step 1: Edit Your <code>.bashrc</code></h3>
+<p>Open your <code>~/.bashrc</code> file in any text editor:</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-bash" data-lang="bash"><span style="display:flex;"><span>nano ~/.bashrc
+</span></span></code></pre></div><p>Scroll to the bottom of the file and paste in the <code>cd</code> function shown above.</p>
+<h3 id="step-2-reload-your-shell">Step 2: Reload Your Shell</h3>
+<p>You don&rsquo;t need to log out. Just run:</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-bash" data-lang="bash"><span style="display:flex;"><span>exec bash
+</span></span></code></pre></div><p>This replaces your current shell session with a fresh one, picking up the new configuration immediately.</p>
+<h3 id="step-3-test-it">Step 3: Test It</h3>
+<p>Change into any directory and watch what happens:</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-bash" data-lang="bash"><span style="display:flex;"><span>cd ~/Documents
+</span></span></code></pre></div><p>You should see an automatic <code>ls</code> output — no second command needed.</p>
+<hr>
+<h2 id="bonus-an-extract-function-for-compressed-archives">Bonus: An <code>extract</code> Function for Compressed Archives</h2>
+<p>While editing <code>.bashrc</code>, it&rsquo;s worth adding a second useful function the video covers: a universal <code>extract</code> command.</p>
+<p>Anyone who&rsquo;s worked with archives knows the pain of remembering which flags go with which format — <code>tar -xzvf</code> for <code>.tar.gz</code>, <code>unzip</code> for <code>.zip</code>, <code>7z x</code> for <code>.7z</code>, and so on. The <code>extract</code> function handles all of that for you:</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-bash" data-lang="bash"><span style="display:flex;"><span>extract<span style="color:#f92672">()</span> <span style="color:#f92672">{</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> <span style="color:#f92672">[</span> -f <span style="color:#e6db74">&#34;</span>$1<span style="color:#e6db74">&#34;</span> <span style="color:#f92672">]</span>; <span style="color:#66d9ef">then</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">case</span> <span style="color:#e6db74">&#34;</span>$1<span style="color:#e6db74">&#34;</span> in
+</span></span><span style="display:flex;"><span>            *.tar.bz2<span style="color:#f92672">)</span>   tar xjf <span style="color:#e6db74">&#34;</span>$1<span style="color:#e6db74">&#34;</span>     ;;
+</span></span><span style="display:flex;"><span>            *.tar.gz<span style="color:#f92672">)</span>    tar xzf <span style="color:#e6db74">&#34;</span>$1<span style="color:#e6db74">&#34;</span>     ;;
+</span></span><span style="display:flex;"><span>            *.bz2<span style="color:#f92672">)</span>       bunzip2 <span style="color:#e6db74">&#34;</span>$1<span style="color:#e6db74">&#34;</span>     ;;
+</span></span><span style="display:flex;"><span>            *.rar<span style="color:#f92672">)</span>       unrar e <span style="color:#e6db74">&#34;</span>$1<span style="color:#e6db74">&#34;</span>     ;;
+</span></span><span style="display:flex;"><span>            *.gz<span style="color:#f92672">)</span>        gunzip <span style="color:#e6db74">&#34;</span>$1<span style="color:#e6db74">&#34;</span>      ;;
+</span></span><span style="display:flex;"><span>            *.tar<span style="color:#f92672">)</span>       tar xf <span style="color:#e6db74">&#34;</span>$1<span style="color:#e6db74">&#34;</span>      ;;
+</span></span><span style="display:flex;"><span>            *.tbz2<span style="color:#f92672">)</span>      tar xjf <span style="color:#e6db74">&#34;</span>$1<span style="color:#e6db74">&#34;</span>     ;;
+</span></span><span style="display:flex;"><span>            *.tgz<span style="color:#f92672">)</span>       tar xzf <span style="color:#e6db74">&#34;</span>$1<span style="color:#e6db74">&#34;</span>     ;;
+</span></span><span style="display:flex;"><span>            *.zip<span style="color:#f92672">)</span>       unzip <span style="color:#e6db74">&#34;</span>$1<span style="color:#e6db74">&#34;</span>       ;;
+</span></span><span style="display:flex;"><span>            *.Z<span style="color:#f92672">)</span>         uncompress <span style="color:#e6db74">&#34;</span>$1<span style="color:#e6db74">&#34;</span>  ;;
+</span></span><span style="display:flex;"><span>            *.7z<span style="color:#f92672">)</span>        7z x <span style="color:#e6db74">&#34;</span>$1<span style="color:#e6db74">&#34;</span>        ;;
+</span></span><span style="display:flex;"><span>            *<span style="color:#f92672">)</span>           echo <span style="color:#e6db74">&#34;&#39;</span>$1<span style="color:#e6db74">&#39; cannot be extracted via extract()&#34;</span> ;;
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">esac</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">else</span>
+</span></span><span style="display:flex;"><span>        echo <span style="color:#e6db74">&#34;&#39;</span>$1<span style="color:#e6db74">&#39; is not a valid file&#34;</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">fi</span>
+</span></span><span style="display:flex;"><span><span style="color:#f92672">}</span>
+</span></span></code></pre></div><p>Once this is in your <code>.bashrc</code> and your shell is reloaded, you can extract <em>any</em> archive type with the same simple command:</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-bash" data-lang="bash"><span style="display:flex;"><span>extract archive.tar.gz
+</span></span><span style="display:flex;"><span>extract backup.zip
+</span></span><span style="display:flex;"><span>extract package.7z
+</span></span></code></pre></div><p>No flags to remember. No format-specific commands to look up. The function reads the file extension and applies the right tool automatically.</p>
+<blockquote>
+<p><strong>Note:</strong> The host credits this function to an unknown author found online over a decade ago. If you know the original source, the community would love to give proper credit.</p>
+</blockquote>
+<hr>
+<h2 id="a-few-things-to-keep-in-mind">A Few Things to Keep in Mind</h2>
+<p><strong>This isn&rsquo;t for everyone.</strong> If you work in directories with thousands of files, an automatic <code>ls</code> on every <code>cd</code> will flood your terminal. You might want to add a check that only runs <code>ls</code> when the file count is below a threshold, or conditionally suppress output.</p>
+<p><strong>It affects all <code>cd</code> calls.</strong> Scripts or commands that use <code>cd</code> in a subshell won&rsquo;t be affected (functions only apply to interactive shells by default), but it&rsquo;s worth knowing that your terminal environment is now slightly different from a vanilla one.</p>
+<p><strong>It&rsquo;s easy to undo.</strong> If you decide you don&rsquo;t like it, just delete the function from <code>~/.bashrc</code> and run <code>exec bash</code> again. No permanent changes.</p>
+<hr>
+<h2 id="key-takeaways">Key Takeaways</h2>
+<ul>
+<li>Most Linux users habitually run <code>ls</code> after <code>cd</code> — automating this is a natural fit</li>
+<li>Naming a Bash function <code>cd</code> overrides the built-in, letting you inject custom behavior</li>
+<li>The <code>builtin</code> keyword is essential to avoid infinite recursion inside the function</li>
+<li>The <code>ls</code> portion is fully customizable — use whatever flags match your preferences</li>
+<li>The bonus <code>extract</code> function solves a separate but equally common annoyance: remembering archive extraction syntax</li>
+</ul>
+<p>Both functions live in <code>~/.bashrc</code>, take effect after <code>exec bash</code>, and can be removed just as easily if they&rsquo;re not to your taste.</p>
+<hr>
+<p>If you spend a meaningful chunk of your day in the terminal, small ergonomic improvements like these add up. Give the <code>cd</code> function a try for a week — there&rsquo;s a good chance you&rsquo;ll wonder why you ever typed <code>ls</code> manually.</p>
+
+</article>
+
+
+
+</html>
