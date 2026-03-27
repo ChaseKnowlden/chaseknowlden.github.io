@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="en-us">
+<title>How to Automate Linux Backups with rsync and systemd (Including Silent Failure Detection) | Chase Knows Blog</title>
+<meta charset="utf-8">
+<meta name="generator" content="Hugo 0.159.0">
+<meta name="description" content="Practical tips and guides for Linux users, developers, and tinkerers.">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="stylesheet" href="https://chaseknowlden.github.io/css/index.css">
+<link rel="canonical" href="https://chaseknowlden.github.io/posts/2026/automate-linux-backups-rsync-systemd/">
+<link rel="alternate" type="application/rss+xml" href="" title="Chase Knows Blog">
+
+<header>
+  
+    <a href="https://chaseknowlden.github.io/" class="title">Chase Knows Blog</a>
+  
+  
+</header>
+
+<article>
+  <header>
+    <h1>How to Automate Linux Backups with rsync and systemd (Including Silent Failure Detection)</h1>
+    <time datetime="2026-03-27T17:09:07-04:00">March 27, 2026</time>
+  </header>
+  <p>Backups are one of those things everyone knows they should have — and yet, &ldquo;I&rsquo;ll set that up later&rdquo; has wiped out more data than any hardware failure. In a recent hands-on lab video from Learn Linux TV, the host walks through building a real, production-ready backup system using <code>rsync</code>, a custom Bash script, and <code>systemd</code> timers. By the end, you have automated incremental backups that run daily and alert you if something quietly breaks.</p>
+<p>This post covers the entire process: writing the script, deploying it with <code>systemd</code>, and wiring up failure notifications with <a href="https://healthchecks.io">healthchecks.io</a>.</p>
+<hr>
+<h2 id="what-youll-need">What You&rsquo;ll Need</h2>
+<p>The setup is intentionally minimal:</p>
+<ul>
+<li>A Linux system (physical, VM, or cloud — distribution doesn&rsquo;t matter)</li>
+<li><code>rsync</code> installed</li>
+<li>A <strong>source directory</strong> — the files you want to back up</li>
+<li>A <strong>destination directory</strong> — where backups will be stored</li>
+</ul>
+<p>Install <code>rsync</code> with your package manager if it isn&rsquo;t already present:</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-bash" data-lang="bash"><span style="display:flex;"><span><span style="color:#75715e"># Debian/Ubuntu</span>
+</span></span><span style="display:flex;"><span>sudo apt install rsync
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e"># Fedora/RHEL</span>
+</span></span><span style="display:flex;"><span>sudo dnf install rsync
+</span></span></code></pre></div><p>For the destination, a local directory works fine for testing. In production, you&rsquo;ll want backups going somewhere separate from your source — an external drive, NFS share, or remote server. The video uses an NFS share mounted at <code>/mnt/backup</code>, but nothing in the script requires that specifically.</p>
+<p>If you want NFS support on Debian/Ubuntu:</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-bash" data-lang="bash"><span style="display:flex;"><span>sudo apt install nfs-common
+</span></span></code></pre></div><p>Then mount your share:</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-bash" data-lang="bash"><span style="display:flex;"><span>sudo mount &lt;server-ip&gt;:/path/to/share /mnt/backup
+</span></span></code></pre></div><hr>
+<h2 id="writing-the-backup-script">Writing the Backup Script</h2>
+<p>Create the script in your home directory while building it:</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-bash" data-lang="bash"><span style="display:flex;"><span>nano ~/backup.sh
+</span></span></code></pre></div><p>Here&rsquo;s the complete script, which we&rsquo;ll walk through section by section:</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-bash" data-lang="bash"><span style="display:flex;"><span><span style="color:#75715e">#!/bin/bash
+</span></span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e"># Paths</span>
+</span></span><span style="display:flex;"><span>BACKUP_MOUNT<span style="color:#f92672">=</span><span style="color:#e6db74">&#34;/mnt/backup&#34;</span>
+</span></span><span style="display:flex;"><span>BACKUP_SOURCE<span style="color:#f92672">=</span><span style="color:#e6db74">&#34;/home/user/my-files&#34;</span>
+</span></span><span style="display:flex;"><span>BACKUP_DEST<span style="color:#f92672">=</span><span style="color:#e6db74">&#34;</span><span style="color:#e6db74">${</span>BACKUP_MOUNT<span style="color:#e6db74">}</span><span style="color:#e6db74">/current&#34;</span>
+</span></span><span style="display:flex;"><span>CURRENT_DATE<span style="color:#f92672">=</span><span style="color:#66d9ef">$(</span>date +<span style="color:#e6db74">&#34;%Y-%m-%d&#34;</span><span style="color:#66d9ef">)</span>
+</span></span><span style="display:flex;"><span>LOG_PATH<span style="color:#f92672">=</span><span style="color:#e6db74">&#34;</span><span style="color:#e6db74">${</span>BACKUP_MOUNT<span style="color:#e6db74">}</span><span style="color:#e6db74">/logs&#34;</span>
+</span></span><span style="display:flex;"><span>PREVIOUS_FILES<span style="color:#f92672">=</span><span style="color:#e6db74">&#34;</span><span style="color:#e6db74">${</span>BACKUP_MOUNT<span style="color:#e6db74">}</span><span style="color:#e6db74">/files-previous/</span><span style="color:#e6db74">${</span>CURRENT_DATE<span style="color:#e6db74">}</span><span style="color:#e6db74">/&#34;</span>
+</span></span><span style="display:flex;"><span>HEALTH_CHECK_URL<span style="color:#f92672">=</span><span style="color:#e6db74">&#34;https://hc-ping.com/your-uuid-here&#34;</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e"># Safety check: abort if the backup mount isn&#39;t mounted</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">if</span> ! mountpoint -q <span style="color:#e6db74">&#34;</span><span style="color:#e6db74">${</span>BACKUP_MOUNT<span style="color:#e6db74">}</span><span style="color:#e6db74">&#34;</span>; <span style="color:#66d9ef">then</span>
+</span></span><span style="display:flex;"><span>    echo <span style="color:#e6db74">&#34;Backup mount not found. Aborting.&#34;</span> &gt;&amp;<span style="color:#ae81ff">2</span>
+</span></span><span style="display:flex;"><span>    exit <span style="color:#ae81ff">1</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">fi</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e"># Create required directories</span>
+</span></span><span style="display:flex;"><span>mkdir -p <span style="color:#e6db74">&#34;</span><span style="color:#e6db74">${</span>LOG_PATH<span style="color:#e6db74">}</span><span style="color:#e6db74">&#34;</span>
+</span></span><span style="display:flex;"><span>mkdir -p <span style="color:#e6db74">&#34;</span><span style="color:#e6db74">${</span>PREVIOUS_FILES<span style="color:#e6db74">}</span><span style="color:#e6db74">&#34;</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e"># Run the backup</span>
+</span></span><span style="display:flex;"><span>rsync -av <span style="color:#ae81ff">\
+</span></span></span><span style="display:flex;"><span>    --delete <span style="color:#ae81ff">\
+</span></span></span><span style="display:flex;"><span>    --backup <span style="color:#ae81ff">\
+</span></span></span><span style="display:flex;"><span>    --backup-dir<span style="color:#f92672">=</span><span style="color:#e6db74">&#34;</span><span style="color:#e6db74">${</span>PREVIOUS_FILES<span style="color:#e6db74">}</span><span style="color:#e6db74">&#34;</span> <span style="color:#ae81ff">\
+</span></span></span><span style="display:flex;"><span>    <span style="color:#e6db74">&#34;</span><span style="color:#e6db74">${</span>BACKUP_SOURCE<span style="color:#e6db74">}</span><span style="color:#e6db74">&#34;</span> <span style="color:#ae81ff">\
+</span></span></span><span style="display:flex;"><span>    <span style="color:#e6db74">&#34;</span><span style="color:#e6db74">${</span>BACKUP_DEST<span style="color:#e6db74">}</span><span style="color:#e6db74">&#34;</span> <span style="color:#ae81ff">\
+</span></span></span><span style="display:flex;"><span>    &gt; <span style="color:#e6db74">&#34;</span><span style="color:#e6db74">${</span>LOG_PATH<span style="color:#e6db74">}</span><span style="color:#e6db74">/backup-</span><span style="color:#e6db74">${</span>CURRENT_DATE<span style="color:#e6db74">}</span><span style="color:#e6db74">.log&#34;</span> <span style="color:#ae81ff">\
+</span></span></span><span style="display:flex;"><span>    2&gt; <span style="color:#e6db74">&#34;</span><span style="color:#e6db74">${</span>LOG_PATH<span style="color:#e6db74">}</span><span style="color:#e6db74">/backup-errors-</span><span style="color:#e6db74">${</span>CURRENT_DATE<span style="color:#e6db74">}</span><span style="color:#e6db74">.log&#34;</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e"># Ping healthchecks.io on success</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">if</span> <span style="color:#f92672">[</span> $? -eq <span style="color:#ae81ff">0</span> <span style="color:#f92672">]</span>; <span style="color:#66d9ef">then</span>
+</span></span><span style="display:flex;"><span>    curl -fsS --retry <span style="color:#ae81ff">3</span> <span style="color:#e6db74">&#34;</span><span style="color:#e6db74">${</span>HEALTH_CHECK_URL<span style="color:#e6db74">}</span><span style="color:#e6db74">&#34;</span> &gt; /dev/null
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">fi</span>
+</span></span></code></pre></div><h3 id="variables">Variables</h3>
+<p>Pulling all paths into variables at the top means you only have to change them in one place. The <code>CURRENT_DATE</code> variable uses a subshell — <code>$(date +&quot;%Y-%m-%d&quot;)</code> — to capture the date at runtime, which gets used to name both the previous-files folder and the log file.</p>
+<h3 id="the-safety-check">The Safety Check</h3>
+<p>This block is essential if your destination is a network mount or removable drive:</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-bash" data-lang="bash"><span style="display:flex;"><span><span style="color:#66d9ef">if</span> ! mountpoint -q <span style="color:#e6db74">&#34;</span><span style="color:#e6db74">${</span>BACKUP_MOUNT<span style="color:#e6db74">}</span><span style="color:#e6db74">&#34;</span>; <span style="color:#66d9ef">then</span>
+</span></span><span style="display:flex;"><span>    echo <span style="color:#e6db74">&#34;Backup mount not found. Aborting.&#34;</span> &gt;&amp;<span style="color:#ae81ff">2</span>
+</span></span><span style="display:flex;"><span>    exit <span style="color:#ae81ff">1</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">fi</span>
+</span></span></code></pre></div><p>Without this, if the NFS share drops or the drive is disconnected, <code>rsync</code> will happily write backups <em>directly to your local filesystem</em> at <code>/mnt/backup</code>. You&rsquo;ll see success messages, but nothing is actually being backed up remotely. The <code>mountpoint -q</code> command checks silently whether the path is a mounted filesystem. The <code>!</code> inverts it — &ldquo;if it&rsquo;s <em>not</em> mounted, abort.&rdquo;</p>
+<p><code>exit 1</code> is intentional: a non-zero exit code signals failure, which becomes important later when we check whether to send a health ping.</p>
+<h3 id="the-rsync-command">The rsync Command</h3>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-bash" data-lang="bash"><span style="display:flex;"><span>rsync -av <span style="color:#ae81ff">\
+</span></span></span><span style="display:flex;"><span>    --delete <span style="color:#ae81ff">\
+</span></span></span><span style="display:flex;"><span>    --backup <span style="color:#ae81ff">\
+</span></span></span><span style="display:flex;"><span>    --backup-dir<span style="color:#f92672">=</span><span style="color:#e6db74">&#34;</span><span style="color:#e6db74">${</span>PREVIOUS_FILES<span style="color:#e6db74">}</span><span style="color:#e6db74">&#34;</span> <span style="color:#ae81ff">\
+</span></span></span><span style="display:flex;"><span>    <span style="color:#e6db74">&#34;</span><span style="color:#e6db74">${</span>BACKUP_SOURCE<span style="color:#e6db74">}</span><span style="color:#e6db74">&#34;</span> <span style="color:#ae81ff">\
+</span></span></span><span style="display:flex;"><span>    <span style="color:#e6db74">&#34;</span><span style="color:#e6db74">${</span>BACKUP_DEST<span style="color:#e6db74">}</span><span style="color:#e6db74">&#34;</span>
+</span></span></code></pre></div><table>
+  <thead>
+      <tr>
+          <th>Option</th>
+          <th>Effect</th>
+      </tr>
+  </thead>
+  <tbody>
+      <tr>
+          <td><code>-a</code></td>
+          <td>Archive mode — preserves permissions, ownership, timestamps, symlinks</td>
+      </tr>
+      <tr>
+          <td><code>-v</code></td>
+          <td>Verbose output — logs every file transferred</td>
+      </tr>
+      <tr>
+          <td><code>--delete</code></td>
+          <td>Removes files at the destination that no longer exist at the source</td>
+      </tr>
+      <tr>
+          <td><code>--backup</code></td>
+          <td>Moves overwritten files aside rather than deleting them</td>
+      </tr>
+      <tr>
+          <td><code>--backup-dir</code></td>
+          <td>Where to send those moved files</td>
+      </tr>
+  </tbody>
+</table>
+<p>The <code>-a</code> and <code>--backup</code> combination gives you the best of both worlds: the destination always mirrors the source (<code>--delete</code>), and nothing is ever truly lost (<code>--backup</code>). If you need to restore an older version of a file, it&rsquo;s in the dated <code>files-previous/</code> directory.</p>
+<h3 id="dry-run-mode">Dry Run Mode</h3>
+<p>Before committing to a real backup, test with <code>--dry-run</code>:</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-bash" data-lang="bash"><span style="display:flex;"><span>rsync -av --dry-run <span style="color:#ae81ff">\
+</span></span></span><span style="display:flex;"><span>    --delete <span style="color:#ae81ff">\
+</span></span></span><span style="display:flex;"><span>    --backup <span style="color:#ae81ff">\
+</span></span></span><span style="display:flex;"><span>    --backup-dir<span style="color:#f92672">=</span><span style="color:#e6db74">&#34;</span><span style="color:#e6db74">${</span>PREVIOUS_FILES<span style="color:#e6db74">}</span><span style="color:#e6db74">&#34;</span> <span style="color:#ae81ff">\
+</span></span></span><span style="display:flex;"><span>    <span style="color:#e6db74">&#34;</span><span style="color:#e6db74">${</span>BACKUP_SOURCE<span style="color:#e6db74">}</span><span style="color:#e6db74">&#34;</span> <span style="color:#ae81ff">\
+</span></span></span><span style="display:flex;"><span>    <span style="color:#e6db74">&#34;</span><span style="color:#e6db74">${</span>BACKUP_DEST<span style="color:#e6db74">}</span><span style="color:#e6db74">&#34;</span>
+</span></span></code></pre></div><p>This prints everything <code>rsync</code> <em>would</em> do without actually touching any files. The log output will include <code>dry run</code> at the bottom as a reminder. Always verify the file list looks correct before removing this flag.</p>
+<h3 id="output-redirection">Output Redirection</h3>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-bash" data-lang="bash"><span style="display:flex;"><span>&gt; <span style="color:#e6db74">&#34;</span><span style="color:#e6db74">${</span>LOG_PATH<span style="color:#e6db74">}</span><span style="color:#e6db74">/backup-</span><span style="color:#e6db74">${</span>CURRENT_DATE<span style="color:#e6db74">}</span><span style="color:#e6db74">.log&#34;</span> <span style="color:#ae81ff">\
+</span></span></span><span style="display:flex;"><span>2&gt; <span style="color:#e6db74">&#34;</span><span style="color:#e6db74">${</span>LOG_PATH<span style="color:#e6db74">}</span><span style="color:#e6db74">/backup-errors-</span><span style="color:#e6db74">${</span>CURRENT_DATE<span style="color:#e6db74">}</span><span style="color:#e6db74">.log&#34;</span>
+</span></span></code></pre></div><p>Standard output (the list of transferred files) goes to the main log. Standard error (anything that went wrong) goes to a separate error log. Both are date-stamped, so you build up a history automatically.</p>
+<hr>
+<h2 id="how-incremental-backups-work">How Incremental Backups Work</h2>
+<p>The <code>current/</code> directory always holds the latest version of every file. When a file changes and rsync runs again, the <em>previous</em> copy is moved to <code>files-previous/YYYY-MM-DD/</code> before the new version overwrites it.</p>
+<pre tabindex="0"><code>/mnt/backup/
+├── current/
+│   └── my-files/
+│       ├── report.csv        ← latest version
+│       └── script.py         ← latest version
+├── files-previous/
+│   └── 2026-03-26/
+│       └── my-files/
+│           └── report.csv    ← yesterday&#39;s version
+└── logs/
+    ├── backup-2026-03-27.log
+    └── backup-errors-2026-03-27.log
+</code></pre><p>Need to restore a file from three days ago? It&rsquo;s in the corresponding date folder under <code>files-previous/</code>.</p>
+<hr>
+<h2 id="deploying-the-script">Deploying the Script</h2>
+<p>Once you&rsquo;re satisfied with a dry run, move the script to a system-wide location and lock down its ownership:</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-bash" data-lang="bash"><span style="display:flex;"><span>sudo mv ~/backup.sh /usr/local/bin/backup.sh
+</span></span><span style="display:flex;"><span>sudo chown root:root /usr/local/bin/backup.sh
+</span></span><span style="display:flex;"><span>sudo chmod <span style="color:#ae81ff">755</span> /usr/local/bin/backup.sh
+</span></span></code></pre></div><p>Keeping it under <code>/usr/local/bin/</code> and owned by root prevents accidental modification. A backup script that gets edited by mistake is a backup script you can&rsquo;t trust.</p>
+<hr>
+<h2 id="automating-with-systemd">Automating with systemd</h2>
+<p>Remembering to run the script manually defeats the purpose. <code>systemd</code> has two components that work together here: a <strong>service</strong> that runs the script, and a <strong>timer</strong> that triggers the service on a schedule.</p>
+<h3 id="the-service-unit">The Service Unit</h3>
+<p>Create <code>/etc/systemd/system/backup.service</code>:</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-bash" data-lang="bash"><span style="display:flex;"><span>sudo nano /etc/systemd/system/backup.service
+</span></span></code></pre></div><div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-ini" data-lang="ini"><span style="display:flex;"><span><span style="color:#66d9ef">[Unit]</span>
+</span></span><span style="display:flex;"><span><span style="color:#a6e22e">Description</span><span style="color:#f92672">=</span><span style="color:#e6db74">Run a daily backup</span>
+</span></span><span style="display:flex;"><span><span style="color:#a6e22e">After</span><span style="color:#f92672">=</span><span style="color:#e6db74">network-online.target</span>
+</span></span><span style="display:flex;"><span><span style="color:#a6e22e">Wants</span><span style="color:#f92672">=</span><span style="color:#e6db74">network-online.target</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">[Service]</span>
+</span></span><span style="display:flex;"><span><span style="color:#a6e22e">Type</span><span style="color:#f92672">=</span><span style="color:#e6db74">oneshot</span>
+</span></span><span style="display:flex;"><span><span style="color:#a6e22e">ExecStart</span><span style="color:#f92672">=</span><span style="color:#e6db74">/usr/local/bin/backup.sh</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">[Install]</span>
+</span></span><span style="display:flex;"><span><span style="color:#a6e22e">WantedBy</span><span style="color:#f92672">=</span><span style="color:#e6db74">multi-user.target</span>
+</span></span></code></pre></div><p><code>After</code> and <code>Wants</code> ensure the service waits for network connectivity before running — critical if you&rsquo;re backing up to a network destination. <code>Type=oneshot</code> tells systemd the service runs to completion and exits, rather than staying alive in the background.</p>
+<h3 id="the-timer-unit">The Timer Unit</h3>
+<p>Create <code>/etc/systemd/system/backup.timer</code>:</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-bash" data-lang="bash"><span style="display:flex;"><span>sudo nano /etc/systemd/system/backup.timer
+</span></span></code></pre></div><div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-ini" data-lang="ini"><span style="display:flex;"><span><span style="color:#66d9ef">[Unit]</span>
+</span></span><span style="display:flex;"><span><span style="color:#a6e22e">Description</span><span style="color:#f92672">=</span><span style="color:#e6db74">Daily backup timer</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">[Timer]</span>
+</span></span><span style="display:flex;"><span><span style="color:#a6e22e">OnCalendar</span><span style="color:#f92672">=</span><span style="color:#e6db74">midnight</span>
+</span></span><span style="display:flex;"><span><span style="color:#a6e22e">Persistent</span><span style="color:#f92672">=</span><span style="color:#e6db74">true</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">[Install]</span>
+</span></span><span style="display:flex;"><span><span style="color:#a6e22e">WantedBy</span><span style="color:#f92672">=</span><span style="color:#e6db74">timers.target</span>
+</span></span></code></pre></div><p><code>OnCalendar=midnight</code> runs the backup at midnight each day. Adjust this to any time that suits your schedule — <code>OnCalendar=*-*-* 02:30:00</code> for 2:30 AM, for example.</p>
+<p><code>Persistent=true</code> is the important one: if the machine was off at midnight, systemd will run the missed job the next time the system boots. Without this, a server that&rsquo;s down for maintenance at midnight simply skips that day&rsquo;s backup with no warning.</p>
+<blockquote>
+<p>The timer and service files must share the same base name (<code>backup.timer</code> triggers <code>backup.service</code>). systemd matches them automatically.</p>
+</blockquote>
+<h3 id="enable-and-start-the-timer">Enable and Start the Timer</h3>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-bash" data-lang="bash"><span style="display:flex;"><span>sudo systemctl daemon-reload
+</span></span><span style="display:flex;"><span>sudo systemctl enable --now backup.timer
+</span></span></code></pre></div><p>Verify it&rsquo;s active:</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-bash" data-lang="bash"><span style="display:flex;"><span>systemctl status backup.timer
+</span></span></code></pre></div><p>The output will show the timer as <em>active (waiting)</em> and tell you exactly when the next run is scheduled.</p>
+<p>To test the full pipeline right now without waiting for midnight, trigger the service directly:</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-bash" data-lang="bash"><span style="display:flex;"><span>sudo systemctl start backup.service
+</span></span><span style="display:flex;"><span>systemctl status backup.service
+</span></span></code></pre></div><p>A status of <code>active (exited)</code> with result <code>success</code> means everything worked.</p>
+<hr>
+<h2 id="preventing-silent-failures-with-healthchecksio">Preventing Silent Failures with healthchecks.io</h2>
+<p>The <code>systemd</code> timer will run the service — but what if the backup silently fails? Maybe the NFS server was unreachable, maybe <code>rsync</code> encountered an error, maybe the mount check aborted the script. Without monitoring, you&rsquo;d only discover the problem when you actually <em>need</em> to restore something.</p>
+<p><a href="https://healthchecks.io">healthchecks.io</a> is a dead man&rsquo;s switch for scheduled jobs. You configure a check with an expected interval, and if it doesn&rsquo;t receive a ping within that window, it sends you an alert. The free tier covers most personal and small-team use cases.</p>
+<h3 id="setup">Setup</h3>
+<ol>
+<li>Create an account at healthchecks.io</li>
+<li>Create a new project (e.g., <em>rsync backup</em>)</li>
+<li>Add a check — set the period to <strong>1 day</strong> and the grace period to <strong>1 hour</strong></li>
+<li>Copy the ping URL (it looks like <code>https://hc-ping.com/some-uuid</code>)</li>
+</ol>
+<h3 id="wiring-it-into-the-script">Wiring It Into the Script</h3>
+<p>The relevant section at the bottom of the script:</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-bash" data-lang="bash"><span style="display:flex;"><span><span style="color:#66d9ef">if</span> <span style="color:#f92672">[</span> $? -eq <span style="color:#ae81ff">0</span> <span style="color:#f92672">]</span>; <span style="color:#66d9ef">then</span>
+</span></span><span style="display:flex;"><span>    curl -fsS --retry <span style="color:#ae81ff">3</span> <span style="color:#e6db74">&#34;</span><span style="color:#e6db74">${</span>HEALTH_CHECK_URL<span style="color:#e6db74">}</span><span style="color:#e6db74">&#34;</span> &gt; /dev/null
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">fi</span>
+</span></span></code></pre></div><p><code>$?</code> holds the exit code of the most recently run command — in this case, <code>rsync</code>. If rsync succeeded (exit code <code>0</code>), curl pings the health check URL. If rsync failed, or if the mount check earlier caused <code>exit 1</code>, the ping never happens. Healthchecks.io notices the silence and sends an alert after the grace period expires.</p>
+<p>The curl flags used here:</p>
+<ul>
+<li><code>-f</code> — fail silently on HTTP errors</li>
+<li><code>-s</code> — suppress progress output</li>
+<li><code>-S</code> — still show errors if <code>-s</code> is active</li>
+<li><code>--retry 3</code> — retry up to 3 times on transient network issues</li>
+</ul>
+<p>Output is sent to <code>/dev/null</code> since we only care that the request was made, not what the server returned.</p>
+<hr>
+<h2 id="key-takeaways">Key Takeaways</h2>
+<ul>
+<li><strong><code>rsync -av --delete --backup</code></strong> gives you a mirror that never loses old versions — current files in <code>current/</code>, replaced files in dated subdirectories</li>
+<li><strong>Always test with <code>--dry-run</code> first</strong> — verify the file list before any real data moves</li>
+<li><strong>The mount check is not optional in production</strong> — without it, a dropped network share means backups silently write to your local disk</li>
+<li><strong><code>systemd</code> timers beat cron</strong> for this use case: better logging, dependency ordering, and <code>Persistent=true</code> handles missed runs</li>
+<li><strong>Silent failure is the real enemy</strong> — a monitoring tool like healthchecks.io closes the loop and ensures you actually know when backups stop working</li>
+</ul>
+<p>A backup system you never check is a backup system you can&rsquo;t trust. This setup gives you confidence: files are versioned, the timer is persistent, and you&rsquo;ll get an email if anything breaks.</p>
+<hr>
+<p><em>This post is based on the Learn Linux TV video <a href="https://www.youtube.com/@LearnLinuxTV">How to Automate Linux Backups Using rsync and systemd</a>. Sample files for testing the script are available in the video&rsquo;s blog post, linked in the video description.</em></p>
+
+</article>
+
+
+
+</html>

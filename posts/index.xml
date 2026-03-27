@@ -6,8 +6,15 @@
     <description>Recent content in Posts on Chase Knows Blog</description>
     <generator>Hugo</generator>
     <language>en-us</language>
-    <lastBuildDate>Mon, 23 Mar 2026 00:00:00 -0400</lastBuildDate>
+    <lastBuildDate>Fri, 27 Mar 2026 17:09:07 -0400</lastBuildDate>
     <atom:link href="https://chaseknowlden.github.io/posts/index.xml" rel="self" type="application/rss+xml" />
+    <item>
+      <title>How to Automate Linux Backups with rsync and systemd (Including Silent Failure Detection)</title>
+      <link>https://chaseknowlden.github.io/posts/2026/automate-linux-backups-rsync-systemd/</link>
+      <pubDate>Fri, 27 Mar 2026 17:09:07 -0400</pubDate>
+      <guid>https://chaseknowlden.github.io/posts/2026/automate-linux-backups-rsync-systemd/</guid>
+      <description>&lt;p&gt;Backups are one of those things everyone knows they should have — and yet, &amp;ldquo;I&amp;rsquo;ll set that up later&amp;rdquo; has wiped out more data than any hardware failure. In a recent hands-on lab video from Learn Linux TV, the host walks through building a real, production-ready backup system using &lt;code&gt;rsync&lt;/code&gt;, a custom Bash script, and &lt;code&gt;systemd&lt;/code&gt; timers. By the end, you have automated incremental backups that run daily and alert you if something quietly breaks.&lt;/p&gt;</description>
+    </item>
     <item>
       <title>Stop Typing ls After Every cd — Let Bash Do It For You</title>
       <link>https://chaseknowlden.github.io/posts/2026/bash-cd-auto-ls/</link>
